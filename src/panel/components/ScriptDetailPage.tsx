@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router'
-import { Route } from '../routes/$scriptId'
+import { scriptDetailRoute } from '../App'
 import { useAppSelector } from '@/store/hooks'
 import { selectScriptById } from '@/store/slices/scriptsSlice'
 import { Button } from '@/components/Button'
@@ -9,7 +9,7 @@ import { downloadScript } from '@/utils/downloadScript'
 
 const ScriptDetailPage = () => {
   const navigate = useNavigate()
-  const { scriptId } = Route.useParams()
+  const { scriptId } = scriptDetailRoute.useParams()
   const script = useAppSelector(selectScriptById(scriptId))
 
   if (!script) {
