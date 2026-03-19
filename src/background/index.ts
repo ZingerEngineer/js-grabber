@@ -88,15 +88,17 @@ async function captureAndDownload(tabId: number, tabUrl: string): Promise<void> 
       fileCount++
     }
 
-    // 5. Generate ZIP as base64 and trigger a single download.
-    //    Service workers don't support URL.createObjectURL, so we use a
-    //    data URI. browser.downloads accepts data: URLs directly.
-    const base64 = await zip.generateAsync({ type: 'base64' })
+    // 5. Generate ZIP and trigger a single download.
+    //    Firefox background pages support URL.createObjectURL but reject data: URIs
+    //    in browser.downloads. Chrome service workers have no URL.createObjectURL
+    //    but accept data: URIs. We detect the available API at runtime.
+    const { url: downloadUrl, revoke } = await buildDownloadUrl(zip)
     await browser.downloads.download({
-      url: `data:application/zip;base64,${base64}`,
+      url: downloadUrl,
       filename: `${hostname}.zip`,
       saveAs: false,
     })
+    revoke()
 
     // Green badge showing how many files are in the zip.
     browser.action.setBadgeText({ text: String(fileCount), tabId })
@@ -106,6 +108,20 @@ async function captureAndDownload(tabId: number, tabUrl: string): Promise<void> 
     browser.action.setBadgeText({ text: 'ERR', tabId })
     browser.action.setBadgeBackgroundColor({ color: '#f38ba8' })
   }
+}
+
+// Generate a download URL for a ZIP file in whichever format the current context supports.
+// Firefox background pages (persistent, not a true service worker) have URL.createObjectURL
+// but their downloads API rejects data: URIs.
+// Chrome service workers lack URL.createObjectURL but the downloads API accepts data: URIs.
+async function buildDownloadUrl(zip: JSZip): Promise<{ url: string; revoke: () => void }> {
+  if (typeof URL.createObjectURL === 'function') {
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(blob)
+    return { url, revoke: () => URL.revokeObjectURL(url) }
+  }
+  const base64 = await zip.generateAsync({ type: 'base64' })
+  return { url: `data:application/zip;base64,${base64}`, revoke: () => {} }
 }
 
 // Build a ZIP-safe relative path from a script URL.
