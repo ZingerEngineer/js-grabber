@@ -2,14 +2,14 @@
 // State here is NOT persistent — the worker is terminated when idle.
 // All durable data must go through chrome.storage.local.
 
+import JSZip from 'jszip'
 import type { ExtensionMessage, MessageResponse } from '@/types/messages'
 
-// ── Action click: immediately grab all scripts + page source ─────────────────
+// ── Action click: grab everything and download a single ZIP ──────────────────
 
 chrome.action.onClicked.addListener((tab) => {
   if (!tab.id || !tab.url) return
 
-  // Only run on real web pages — skip chrome://, about:, extension pages, etc.
   if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
     chrome.action.setBadgeText({ text: 'N/A', tabId: tab.id })
     chrome.action.setBadgeBackgroundColor({ color: '#45475a' })
@@ -19,84 +19,81 @@ chrome.action.onClicked.addListener((tab) => {
   captureAndDownload(tab.id, tab.url)
 })
 
-// ── Core capture logic ────────────────────────────────────────────────────────
+// ── Core capture + ZIP logic ─────────────────────────────────────────────────
 
 async function captureAndDownload(tabId: number, tabUrl: string): Promise<void> {
-  const hostname = new URL(tabUrl).hostname
+  const { hostname } = new URL(tabUrl)
 
-  // Show "working" badge
   chrome.action.setBadgeText({ text: '...', tabId })
   chrome.action.setBadgeBackgroundColor({ color: '#cba6f7' })
 
   try {
-    // 1. Collect all <script src> URLs and inline script content from the live DOM.
-    //    This function runs inside the inspected page — no closure variables allowed.
+    // 1. Collect script URLs + inline scripts from the live DOM.
+    //    Runs inside the inspected page — no closure variables allowed.
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId },
-      func: (): { externalUrls: string[]; inlineScripts: string[]; pageUrl: string } => {
-        const externalUrls = Array.from(document.querySelectorAll('script[src]'))
+      func: (): { externalUrls: string[]; inlineScripts: string[]; pageUrl: string } => ({
+        externalUrls: Array.from(document.querySelectorAll('script[src]'))
           .map((el) => (el as HTMLScriptElement).src)
-          .filter((url) => url.startsWith('http'))
-
-        const inlineScripts = Array.from(
-          document.querySelectorAll('script:not([src])'),
-        )
+          .filter((url) => url.startsWith('http')),
+        inlineScripts: Array.from(document.querySelectorAll('script:not([src])'))
           .map((el) => el.textContent ?? '')
-          .filter((text) => text.trim().length > 0)
-
-        return { externalUrls, inlineScripts, pageUrl: location.href }
-      },
+          .filter((t) => t.trim().length > 0),
+        pageUrl: location.href,
+      }),
     })
 
     if (!injection.result) throw new Error('Script injection returned no result')
 
     const { externalUrls, inlineScripts, pageUrl } = injection.result
-    let count = 0
+    const zip = new JSZip()
+    let fileCount = 0
 
-    // 2. Download page HTML source (the server-returned HTML, like View Source).
+    // 2. Page HTML source — fetch the server-returned HTML (like View Source).
     try {
       const res = await fetch(pageUrl)
-      const html = await res.text()
-      await chrome.downloads.download({
-        url: 'data:text/html;charset=utf-8,' + encodeURIComponent(html),
-        filename: `${hostname}/page.html`,
-        saveAs: false,
-      })
-      count++
+      if (res.ok) {
+        zip.file('page.html', await res.text())
+        fileCount++
+      }
     } catch {
-      // Page fetch may fail (auth-gated, CSP, etc.) — skip silently.
+      // Auth-gated or network error — skip.
     }
 
-    // 3. Download each external JS file.
-    //    chrome.downloads fetches each URL directly, preserving cookies and auth.
-    for (const scriptUrl of externalUrls) {
+    // 3. External JS files — fetch each URL and add to scripts/ in the ZIP.
+    //    Preserve the URL path so naming is unique and traceable.
+    for (const url of externalUrls) {
       try {
-        await chrome.downloads.download({
-          url: scriptUrl,
-          filename: `${hostname}/${urlToFilename(scriptUrl)}`,
-          saveAs: false,
-        })
-        count++
+        const res = await fetch(url)
+        if (!res.ok) continue
+        zip.file(`scripts/${urlToZipPath(url)}`, await res.text())
+        fileCount++
       } catch {
-        // Individual file may fail (expired token, CORS, etc.) — skip.
+        // Expired token, CORS block, etc. — skip and continue.
       }
     }
 
-    // 4. Download inline scripts bundled into a single file.
+    // 4. Inline scripts — combine into one file for readability.
     if (inlineScripts.length > 0) {
       const combined = inlineScripts
         .map((src, i) => `/* ── inline script ${i + 1} ── */\n${src}`)
         .join('\n\n')
-      await chrome.downloads.download({
-        url: 'data:text/javascript;charset=utf-8,' + encodeURIComponent(combined),
-        filename: `${hostname}/inline-scripts.js`,
-        saveAs: false,
-      })
-      count++
+      zip.file('scripts/inline-scripts.js', combined)
+      fileCount++
     }
 
-    // Show count badge (green = success)
-    chrome.action.setBadgeText({ text: String(count), tabId })
+    // 5. Generate ZIP as base64 and trigger a single download.
+    //    Service workers don't support URL.createObjectURL, so we use a
+    //    data URI. chrome.downloads accepts data: URLs directly.
+    const base64 = await zip.generateAsync({ type: 'base64' })
+    await chrome.downloads.download({
+      url: `data:application/zip;base64,${base64}`,
+      filename: `${hostname}.zip`,
+      saveAs: false,
+    })
+
+    // Green badge showing how many files are in the zip.
+    chrome.action.setBadgeText({ text: String(fileCount), tabId })
     chrome.action.setBadgeBackgroundColor({ color: '#a6e3a1' })
   } catch (err) {
     console.error('[JS Grabber] captureAndDownload failed:', err)
@@ -105,16 +102,20 @@ async function captureAndDownload(tabId: number, tabUrl: string): Promise<void> 
   }
 }
 
-function urlToFilename(url: string): string {
+// Build a ZIP-safe relative path from a script URL.
+// Same-origin:   /static/js/app.bundle.js → static/js/app.bundle.js
+// Cross-origin:  https://cdn.example.com/lib.js → cdn.example.com/lib.js
+function urlToZipPath(url: string): string {
   try {
-    const pathname = new URL(url).pathname
-    return pathname.split('/').filter(Boolean).pop() ?? 'script.js'
+    const { hostname: host, pathname } = new URL(url)
+    const clean = pathname.replace(/^\//, '').split('?')[0] || 'script.js'
+    return clean.includes('/') ? clean : `${host}/${clean}`
   } catch {
     return 'script.js'
   }
 }
 
-// ── Message handler (for DevTools panel "Download All" button) ────────────────
+// ── Message handler (DevTools panel "Download All" button) ───────────────────
 
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
@@ -124,7 +125,7 @@ chrome.runtime.onMessage.addListener(
         const error = err instanceof Error ? err.message : 'Unknown error'
         sendResponse({ success: false, error } satisfies MessageResponse)
       })
-    return true // keep channel open for async response
+    return true
   },
 )
 
@@ -133,8 +134,6 @@ async function handleMessage(
 ): Promise<MessageResponse<unknown>> {
   switch (message.type) {
     case 'DOWNLOAD_ALL': {
-      // Triggered from the DevTools panel. The inspected tab's ID and URL
-      // must be read via chrome.tabs since we're in the background context.
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
       if (tab?.id && tab?.url) {
         captureAndDownload(tab.id, tab.url)
@@ -142,11 +141,8 @@ async function handleMessage(
       return { success: true, data: null }
     }
 
-    case 'DOWNLOAD_SCRIPT': {
-      // Single file download triggered from the panel detail view.
-      // The panel already has the content; this is a no-op stub for now.
+    case 'DOWNLOAD_SCRIPT':
       return { success: true, data: null }
-    }
 
     default:
       return { success: false, error: 'Unhandled message type' }
