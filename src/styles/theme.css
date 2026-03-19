@@ -1,0 +1,20 @@
+/* Design tokens — Catppuccin Mocha inspired dark theme.
+   In Tailwind v4, @theme variables become utility classes automatically:
+   --color-surface  → bg-surface, text-surface, border-surface, etc. */
+@theme {
+  --color-surface: #1e1e2e;
+  --color-surface-raised: #313244;
+  --color-surface-overlay: #45475a;
+
+  --color-accent: #cba6f7;
+  --color-accent-hover: #b4befe;
+
+  --color-success: #a6e3a1;
+  --color-warning: #f9e2af;
+  --color-error: #f38ba8;
+
+  --color-text: #cdd6f4;
+  --color-text-muted: #a6adc8;
+
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
