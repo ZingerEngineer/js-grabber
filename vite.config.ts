@@ -37,4 +37,15 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
+
+  build: {
+    rollupOptions: {
+      output: {
+        // Chrome extensions forbid filenames starting with "_".
+        // TanStack Router's auto code splitting turns $scriptId.tsx → _scriptId.js,
+        // which triggers the error. Routing all chunks into assets/ fixes it.
+        chunkFileNames: 'assets/[name]-[hash].js',
+      },
+    },
+  },
 })
