@@ -6,6 +6,6 @@
 // resolves correctly within the packed extension.
 chrome.devtools.panels.create(
   'JS Grabber',
-  '', // icon — leave empty to use the extension's default action icon
+  'icons/icon16.png',
   chrome.runtime.getURL('src/panel/index.html'),
 )
