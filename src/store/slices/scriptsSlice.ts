@@ -3,7 +3,7 @@ import type { PayloadAction } from '@reduxjs/toolkit'
 import type { RootState } from '@/store'
 import type { CapturedScript } from '@/types'
 
-interface ScriptsState {
+export interface ScriptsState {
   items: CapturedScript[]
   selectedId: string | null
   status: 'idle' | 'loading' | 'error'

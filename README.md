@@ -109,23 +109,45 @@ js-grabber/
 └── package.json
 ```
 
+## Browser Compatibility
+
+| Browser | Support | Notes |
+|---------|---------|-------|
+| Chrome | ✅ | Full support |
+| Brave | ✅ | Full support |
+| Edge | ✅ | Full support |
+| Firefox | ✅ | MV3 + `browser.devtools.*` (≥ 128) |
+| Safari | ❌ | No `devtools.network` or `devtools.inspectedWindow` API |
+
+Browser compatibility is provided by [`webextension-polyfill`](https://github.com/mozilla/webextension-polyfill), which normalises the `browser.*` namespace across Chrome and Firefox.
+
 ## Getting Started
 
 ```bash
 pnpm install
-pnpm build        # production build → dist/
-pnpm dev          # watch mode (rebuilds on save)
-pnpm test         # Vitest
-pnpm typecheck    # tsc --noEmit
+pnpm build           # production build → dist/chrome/ + dist/firefox/
+pnpm build:chrome    # Chrome/Brave/Edge only → dist/chrome/
+pnpm build:firefox   # Firefox only → dist/firefox/
+pnpm dev             # watch mode for Chrome
+pnpm dev:firefox     # watch mode for Firefox
+pnpm test            # Vitest
+pnpm typecheck       # tsc --noEmit
 ```
 
-### Load in Brave / Chrome
+### Load in Chrome / Brave / Edge
 
-1. `pnpm build`
-2. Open `brave://extensions` or `chrome://extensions`
+1. `pnpm build:chrome`
+2. Open `chrome://extensions` (or `brave://extensions` / `edge://extensions`)
 3. Enable **Developer mode**
-4. Click **Load unpacked** → select the `dist/` folder
+4. Click **Load unpacked** → select `dist/chrome/`
 5. The JS Grabber icon appears in your toolbar
+
+### Load in Firefox
+
+1. `pnpm build:firefox`
+2. Open `about:debugging#/runtime/this-firefox`
+3. Click **Load Temporary Add-on**
+4. Select any file inside `dist/firefox/` (e.g. `manifest.json`)
 
 ### Using the Extension
 
