@@ -1,11 +1,17 @@
 // Registers the JS Grabber panel in Chrome DevTools.
-// This file runs in the devtools page context — chrome.devtools.* is available here.
+// Runs in the devtools page context — chrome.devtools.* is available here.
 //
-// Note on panel URL: vite-plugin-web-extension builds src/panel/index.html to
-// dist/src/panel/index.html, so chrome.runtime.getURL('src/panel/index.html')
-// resolves correctly within the packed extension.
+// IMPORTANT: the third argument must be a path RELATIVE to the extension root,
+// not a chrome.runtime.getURL() absolute URL. The API rejects full URLs.
 chrome.devtools.panels.create(
   'JS Grabber',
   'icons/icon16.png',
-  chrome.runtime.getURL('src/panel/index.html'),
+  'src/panel/index.html',
+  (panel) => {
+    if (chrome.runtime.lastError) {
+      console.error('[JS Grabber] Panel creation failed:', chrome.runtime.lastError.message)
+      return
+    }
+    console.log('[JS Grabber] DevTools panel registered.', panel)
+  },
 )
