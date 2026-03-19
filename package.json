@@ -4,8 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite build --watch",
-    "build": "vite build",
+    "dev": "pnpm dev:chrome",
+    "dev:chrome": "TARGET_BROWSER=chrome vite build --watch",
+    "dev:firefox": "TARGET_BROWSER=firefox vite build --watch",
+    "build": "pnpm build:all",
+    "build:chrome": "TARGET_BROWSER=chrome vite build",
+    "build:firefox": "TARGET_BROWSER=firefox vite build",
+    "build:all": "pnpm build:chrome && pnpm build:firefox",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:coverage": "vitest --coverage"
@@ -19,7 +24,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-redux": "^9.2.0",
-    "tailwind-merge": "^3.1.0"
+    "tailwind-merge": "^3.1.0",
+    "webextension-polyfill": "^0.12.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
@@ -27,10 +33,10 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.5.0",
-    "@types/chrome": "^0.0.320",
     "@types/jszip": "^3.4.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/webextension-polyfill": "^0.12.5",
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^26.0.0",
     "tailwindcss": "^4.1.0",

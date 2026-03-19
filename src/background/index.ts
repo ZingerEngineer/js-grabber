@@ -2,17 +2,18 @@
 // State here is NOT persistent — the worker is terminated when idle.
 // All durable data must go through chrome.storage.local.
 
+import browser from 'webextension-polyfill'
 import JSZip from 'jszip'
 import type { ExtensionMessage, MessageResponse } from '@/types/messages'
 
 // ── Action click: grab everything and download a single ZIP ──────────────────
 
-chrome.action.onClicked.addListener((tab) => {
+browser.action.onClicked.addListener((tab) => {
   if (!tab.id || !tab.url) return
 
   if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) {
-    chrome.action.setBadgeText({ text: 'N/A', tabId: tab.id })
-    chrome.action.setBadgeBackgroundColor({ color: '#45475a' })
+    browser.action.setBadgeText({ text: 'N/A', tabId: tab.id })
+    browser.action.setBadgeBackgroundColor({ color: '#45475a' })
     return
   }
 
@@ -24,13 +25,13 @@ chrome.action.onClicked.addListener((tab) => {
 async function captureAndDownload(tabId: number, tabUrl: string): Promise<void> {
   const { hostname } = new URL(tabUrl)
 
-  chrome.action.setBadgeText({ text: '...', tabId })
-  chrome.action.setBadgeBackgroundColor({ color: '#cba6f7' })
+  browser.action.setBadgeText({ text: '...', tabId })
+  browser.action.setBadgeBackgroundColor({ color: '#cba6f7' })
 
   try {
     // 1. Collect script URLs + inline scripts from the live DOM.
     //    Runs inside the inspected page — no closure variables allowed.
-    const [injection] = await chrome.scripting.executeScript({
+    const [injection] = await browser.scripting.executeScript({
       target: { tabId },
       func: (): { externalUrls: string[]; inlineScripts: string[]; pageUrl: string } => ({
         externalUrls: Array.from(document.querySelectorAll('script[src]'))
@@ -45,7 +46,12 @@ async function captureAndDownload(tabId: number, tabUrl: string): Promise<void> 
 
     if (!injection.result) throw new Error('Script injection returned no result')
 
-    const { externalUrls, inlineScripts, pageUrl } = injection.result
+    // @types/webextension-polyfill types result as unknown — cast to expected shape
+    const { externalUrls, inlineScripts, pageUrl } = injection.result as {
+      externalUrls: string[]
+      inlineScripts: string[]
+      pageUrl: string
+    }
     const zip = new JSZip()
     let fileCount = 0
 
@@ -84,21 +90,21 @@ async function captureAndDownload(tabId: number, tabUrl: string): Promise<void> 
 
     // 5. Generate ZIP as base64 and trigger a single download.
     //    Service workers don't support URL.createObjectURL, so we use a
-    //    data URI. chrome.downloads accepts data: URLs directly.
+    //    data URI. browser.downloads accepts data: URLs directly.
     const base64 = await zip.generateAsync({ type: 'base64' })
-    await chrome.downloads.download({
+    await browser.downloads.download({
       url: `data:application/zip;base64,${base64}`,
       filename: `${hostname}.zip`,
       saveAs: false,
     })
 
     // Green badge showing how many files are in the zip.
-    chrome.action.setBadgeText({ text: String(fileCount), tabId })
-    chrome.action.setBadgeBackgroundColor({ color: '#a6e3a1' })
+    browser.action.setBadgeText({ text: String(fileCount), tabId })
+    browser.action.setBadgeBackgroundColor({ color: '#a6e3a1' })
   } catch (err) {
     console.error('[JS Grabber] captureAndDownload failed:', err)
-    chrome.action.setBadgeText({ text: 'ERR', tabId })
-    chrome.action.setBadgeBackgroundColor({ color: '#f38ba8' })
+    browser.action.setBadgeText({ text: 'ERR', tabId })
+    browser.action.setBadgeBackgroundColor({ color: '#f38ba8' })
   }
 }
 
@@ -117,24 +123,21 @@ function urlToZipPath(url: string): string {
 
 // ── Message handler (DevTools panel "Download All" button) ───────────────────
 
-chrome.runtime.onMessage.addListener(
-  (message: ExtensionMessage, _sender, sendResponse) => {
-    handleMessage(message)
-      .then(sendResponse)
-      .catch((err: unknown) => {
-        const error = err instanceof Error ? err.message : 'Unknown error'
-        sendResponse({ success: false, error } satisfies MessageResponse)
-      })
-    return true
-  },
-)
+// The polyfill uses the return value of the listener (a Promise) instead of
+// the sendResponse callback pattern used by the raw chrome.* API.
+browser.runtime.onMessage.addListener((message: unknown, _sender: unknown) => {
+  return handleMessage(message as ExtensionMessage).catch((err: unknown) => {
+    const error = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, error } satisfies MessageResponse
+  })
+})
 
 async function handleMessage(
   message: ExtensionMessage,
 ): Promise<MessageResponse<unknown>> {
   switch (message.type) {
     case 'DOWNLOAD_ALL': {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true })
       if (tab?.id && tab?.url) {
         captureAndDownload(tab.id, tab.url)
       }
